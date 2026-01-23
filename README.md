@@ -1,5 +1,10 @@
 # Shovel
 
+[![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/pfchen/shovel#license)
+[![Crates.io](https://img.shields.io/crates/v/shovel.svg)](https://crates.io/crates/shovel)
+[![Downloads](https://img.shields.io/crates/d/shovel.svg)](https://crates.io/crates/shovel)
+[![Docs](https://docs.rs/shovel/badge.svg)](https://docs.rs/shovel/latest/shovel/)
+
 `shovel` is a declarative, simple, and fast package for building command line tools in Rust.
 
 ## Key Features
