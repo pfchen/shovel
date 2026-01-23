@@ -1,7 +1,10 @@
 [package]
 name = "shovel_macros"
 version = "0.1.0"
+description = "Procedural macros for the Shovel CLI parsing library"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/pfchen/shovel"
 
 [lib]
 proc-macro = true

@@ -1,8 +1,11 @@
 [package]
 name = "shovel"
 version = "0.1.0"
+description = "A declarative, fast CLI parsing library with derive macros, no_std support, and zero-cost abstractions"
 edition = "2024"
 keywords = ["cli", "no_std"]
+license = "MIT"
+repository = "https://github.com/pfchen/shovel"
 
 [dependencies]
 shovel_macros = { path = "../shovel_macros" }
