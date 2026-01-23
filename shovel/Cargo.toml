@@ -1,0 +1,53 @@
+[package]
+name = "shovel"
+version = "0.1.0"
+edition = "2024"
+keywords = ["cli", "no_std"]
+
+[dependencies]
+shovel_macros = { path = "../shovel_macros" }
+
+[features]
+default = ["std", "completion"] # number of subcmds: 25
+std = []
+completion = []
+generic_const_exprs = []
+# Additive subcmd features - can be combined, highest wins
+subcmds-50 = []  # extends to 50 subcmds
+subcmds-75 = []  # extends to 75 subcmds
+subcmds-100 = [] # extends to 100 subcmds
+
+[dev-dependencies]
+libc = { version = "0.2.180", default-features = false }
+unwind = "0.4.2"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[example]]
+name = "no-std-adder"
+test = false
+doctest = false
+bench = false
+
+[[example]]
+name = "custom-writer"
+required-features = ["std"]
+test = false
+doctest = false
+bench = false
+
+[[example]]
+name = "webserver"
+required-features = ["std"]
+test = false
+doctest = false
+bench = false
+
+[[example]]
+name = "echo"
+required-features = ["std"]
+test = false
+doctest = false
+bench = false
