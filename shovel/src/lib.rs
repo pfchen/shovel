@@ -316,7 +316,7 @@
 //!                         .description("Sets a config key")
 //!                         .category("configuration")
 //!                         .action(Action::args(|key: String| {
-//!                             println!("Setting config key: {}", key)
+//!                             println!("Setting config key: {}", key);
 //!                         }))
 //!                         .build(),
 //!                     CmdBuilder::new("get")
@@ -384,6 +384,8 @@
 //! Use stack-based allocation with a fixed-size buffer:
 //!
 //! ```no_run
+//! # #![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
+//! # #![allow(incomplete_features)]
 //! # #[cfg(feature = "std")] {
 //! # use shovel::*;
 //! # fn main() {
@@ -576,7 +578,18 @@ pub mod pool;
 pub mod suggestion;
 pub mod writer;
 
-pub use action::{Action, ActionResult, AppAction};
+/// Exit code returned when a command completes successfully.
+///
+/// This includes explicit help, version, and completion output.
+pub const EXIT_CODE_SUCCESS: i32 = 0;
+
+/// Exit code returned for invalid command-line input or environment fallback.
+///
+/// The diagnostic has already been written to the configured writer when this
+/// code is returned.
+pub const EXIT_CODE_USAGE: i32 = 2;
+
+pub use action::{Action, ActionResult, ActionReturn, AppAction};
 pub use app::App;
 pub use args::{ArgGroup, Args, RawArgs};
 pub use cmd::{Cmd, Subcmds};

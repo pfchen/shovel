@@ -290,6 +290,7 @@ pub struct RawArgs<'a> {
     args: &'a [&'a str],
     /// Current position in the argument list.
     current: Cell<usize>,
+    pub(crate) env: &'a [(&'a str, &'a str)],
 }
 
 impl Args for () {
@@ -321,9 +322,22 @@ impl fmt::Debug for RawArgs<'_> {
 }
 
 impl<'a> RawArgs<'a> {
+    #[cfg(test)]
     pub(crate) fn new(args: &'a [&'a str]) -> Self {
         RawArgs {
             args,
+            env: &[],
+            current: Cell::new(0),
+        }
+    }
+
+    pub(crate) fn with_env(
+        args: &'a [&'a str],
+        env: &'a [(&'a str, &'a str)],
+    ) -> Self {
+        Self {
+            args,
+            env,
             current: Cell::new(0),
         }
     }
@@ -1224,7 +1238,7 @@ mod tests {
             .iter()
             .map(core::convert::AsRef::as_ref)
             .collect();
-        assert!(collected.is_empty());
+        assert_eq!(collected, [] as [&str; 0]);
     }
 
     #[test]
@@ -1311,7 +1325,7 @@ mod tests {
         let args: &[&str] = &[];
         let result = std::vec::Vec::<u32>::parse(args);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert_eq!(result.unwrap(), [] as [u32; 0]);
     }
 
     // Note: The macro-generated tuple implementations were removed because

@@ -138,6 +138,35 @@
 //! }
 //! ```
 //!
+//! ## `#[env = "NAME"]`
+//! Uses an environment variable as a fallback when the option is absent from
+//! the command line:
+//! ```
+//! # use shovel::*;
+//! #[derive(Opts)]
+//! struct MyOpts {
+//!     #[env = "APP_PORT"]
+//!     port: Option<u16>,
+//! }
+//! ```
+//! Each field may declare only one environment fallback:
+//! ```compile_fail
+//! use shovel::Opts;
+//!
+//! #[derive(Opts)]
+//! struct InvalidOpts {
+//!     #[env = "APP_PORT"]
+//!     #[env = "OTHER_PORT"]
+//!     port: Option<u16>,
+//! }
+//! ```
+//! The name must be non-empty ASCII without `=`, NUL, or surrounding
+//! whitespace. Values are parsed like command-line values: lists are
+//! comma-separated and booleans accept `true` or `false`. CLI values take
+//! precedence, required fields are checked after fallback, and the first
+//! matching environment pair wins. Non-Unicode process environment entries are
+//! ignored, so a declared variable that is present but non-Unicode is treated
+//! as absent.
 //!
 //! # Built-in Options
 //!
@@ -407,6 +436,18 @@ pub trait Opts: Sized + 'static {
     fn parse<'a, 'b: 'a>(
         opts: &'a RawOpts<'a, 'b>,
     ) -> Result<(Self, usize), ParseError<'b>>;
+
+    /// Parse options with explicitly supplied environment fallback values.
+    /// Manual implementations may override this; the default parses CLI input only.
+    ///
+    /// # Errors
+    /// Returns a parsing error for invalid options or environment fallback values.
+    fn parse_with_env<'a, 'b: 'a>(
+        opts: &'a RawOpts<'a, 'b>,
+        _env: &'b [(&'b str, &'b str)],
+    ) -> Result<(Self, usize), ParseError<'b>> {
+        Self::parse(opts)
+    }
 
     /// Provides specifications for all optional arguments.
     ///

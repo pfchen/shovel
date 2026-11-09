@@ -150,6 +150,7 @@ use shovel_macros::impl_subcmds;
 
 use crate::BUILTIN_OPTS;
 use crate::CmdHelp;
+use crate::EXIT_CODE_SUCCESS;
 use crate::HelpOpt;
 use crate::Opts;
 use crate::Pool;
@@ -197,7 +198,14 @@ use crate::{Args, RawArgs};
 ///
 /// See also: [`App`](crate::App), [`Action`], [`Opts`], [`Args`]
 #[derive(Debug)]
-pub struct Cmd<'a, O: Opts, A: Args, G: Opts, C: Subcmds<G>> {
+pub struct Cmd<
+    'a,
+    O: Opts,
+    A: Args,
+    G: Opts,
+    C: Subcmds<G>,
+    R: crate::ActionReturn = (),
+> {
     /// The name of the command.
     pub name: &'a str,
     /// A long description of the command.
@@ -205,7 +213,7 @@ pub struct Cmd<'a, O: Opts, A: Args, G: Opts, C: Subcmds<G>> {
     /// The category the command is part of
     pub category: Option<&'a str>,
     /// The action of the command.
-    pub action: Action<O, A, G, C>,
+    pub action: Action<O, A, G, C, R>,
 }
 
 /// A trait for objects which can be used as the children of a command.
@@ -252,7 +260,7 @@ impl<G: Opts> Subcmds<G> for () {
         _raw_args: &RawArgs<'_>,
         _global_opts: G,
     ) -> ActionResult<'_> {
-        ActionResult::Success
+        ActionResult::Success(EXIT_CODE_SUCCESS)
     }
 
     fn get_help_list<'b>(
@@ -263,7 +271,9 @@ impl<G: Opts> Subcmds<G> for () {
     }
 }
 
-impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>> Cmd<'_, O, A, G, C> {
+impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>, R: crate::ActionReturn>
+    Cmd<'_, O, A, G, C, R>
+{
     /// Run the command.
     pub fn run<'b>(
         &'b self,
@@ -292,8 +302,8 @@ impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>> Cmd<'_, O, A, G, C> {
     }
 }
 
-impl<O1: Opts, A1: Args, G: Opts, C1: Subcmds<G>> Subcmds<G>
-    for Cmd<'_, O1, A1, G, C1>
+impl<O1: Opts, A1: Args, G: Opts, C1: Subcmds<G>, R1: crate::ActionReturn>
+    Subcmds<G> for Cmd<'_, O1, A1, G, C1, R1>
 {
     const CMD_COUNT: usize = C1::CMD_COUNT + 1;
 
@@ -319,8 +329,8 @@ impl<O1: Opts, A1: Args, G: Opts, C1: Subcmds<G>> Subcmds<G>
     }
 }
 
-impl<O1: Opts, A1: Args, G: Opts, C1: Subcmds<G>> Subcmds<G>
-    for (Cmd<'_, O1, A1, G, C1>,)
+impl<O1: Opts, A1: Args, G: Opts, C1: Subcmds<G>, R1: crate::ActionReturn>
+    Subcmds<G> for (Cmd<'_, O1, A1, G, C1, R1>,)
 {
     const CMD_COUNT: usize = C1::CMD_COUNT + 1;
 
@@ -352,10 +362,12 @@ impl<
     O1: Opts,
     A1: Args,
     C1: Subcmds<G>,
+    R1: crate::ActionReturn,
     O2: Opts,
     A2: Args,
     C2: Subcmds<G>,
-> Subcmds<G> for (Cmd<'a, O1, A1, G, C1>, Cmd<'a, O2, A2, G, C2>)
+    R2: crate::ActionReturn,
+> Subcmds<G> for (Cmd<'a, O1, A1, G, C1, R1>, Cmd<'a, O2, A2, G, C2, R2>)
 {
     const CMD_COUNT: usize = C1::CMD_COUNT + C2::CMD_COUNT + 2;
 
@@ -529,7 +541,7 @@ mod tests {
         let args: &[&str] = &[];
         let raw_args = crate::RawArgs::new(args);
         let result = empty_subcmds.run("any", &raw_args, ());
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         let mut pool = ArrayPool::<crate::CmdHelp<'_>, 1>::new();
         let help_list =
@@ -557,7 +569,7 @@ mod tests {
             &raw_args,
             (),
         );
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         // Test command mismatch with suggestion
         let result = <Cmd<'_, (), (), (), ()> as Subcmds<()>>::run(
@@ -595,7 +607,7 @@ mod tests {
         let args: &[&str] = &[];
         let raw_args = crate::RawArgs::new(args);
         let result = subcmds.run("world", &raw_args, ());
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         // Test command mismatch
         let result = subcmds.run("hello", &raw_args, ());
@@ -630,11 +642,11 @@ mod tests {
         let args: &[&str] = &[];
         let raw_args = crate::RawArgs::new(args);
         let result = subcmds.run("ping", &raw_args, ());
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         // Test second command match
         let result = subcmds.run("pong", &raw_args, ());
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         // Test command mismatch with suggestion
         let result = subcmds.run("unknown", &raw_args, ());

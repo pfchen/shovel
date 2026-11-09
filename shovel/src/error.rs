@@ -105,7 +105,7 @@
 //! let mut writer = IoWriteAdapter::new(&mut output);
 //!
 //! match app.run_with_args(&mut writer, &["app", "--invalid"]) {
-//!     Ok(()) => println!("Command executed successfully"),
+//!     Ok(code) => println!("Command completed with status {code}"),
 //!     Err(e) => {
 //!         eprintln!("Error: {}", e);
 //!         // Custom error handling logic here
@@ -183,6 +183,15 @@ use core::fmt;
 /// diagnostics.
 #[derive(Debug)]
 pub enum ParseError<'a> {
+    /// An explicitly supplied environment fallback could not be parsed.
+    InvalidEnvironmentValue {
+        /// Environment variable name.
+        name: &'static str,
+        /// Invalid value or list element.
+        value: &'a str,
+        /// Expected value type.
+        expected: &'static str,
+    },
     /// Encountered an unknown optional argument.
     ///
     /// This error occurs when the parser encounters an option that is not
@@ -254,6 +263,14 @@ pub enum ParseError<'a> {
 impl fmt::Display for ParseError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidEnvironmentValue {
+                name,
+                value,
+                expected,
+            } => write!(
+                f,
+                "Invalid value '{value}' for environment variable '{name}': expected {expected}"
+            ),
             Self::UnknownOption(opt) => write!(f, "Unknown option '{opt}'"),
             Self::UnexpectedFlagValue { name, value } => {
                 write!(f, "Flag '{name}' doesn't accept value '{value}'")

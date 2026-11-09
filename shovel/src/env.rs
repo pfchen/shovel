@@ -1,8 +1,9 @@
 //! Standard environment helpers.
 //!
-//! This module provides ergonomic helpers for working with command-line arguments.
-//! The primary function `args()` converts the result of `std::env::args()` into
-//! a format suitable for use by Shovel's `run_*` methods.
+//! This module provides ergonomic helpers for working with command-line arguments
+//! and process environment variables. [`args()`] converts the result of
+//! `std::env::args()` into a format suitable for use by Shovel's `run_*` methods,
+//! while [`vars_os()`] collects the Unicode environment entries into [`Vars`].
 
 /// Owned environment arguments with a convenient conversion to `&str`.
 ///
@@ -46,5 +47,67 @@ impl Args {
 pub fn args() -> Args {
     Args {
         argv: std::env::args().collect(),
+    }
+}
+
+/// Owned UTF-8 environment names and values.
+#[derive(Debug, Clone)]
+pub struct Vars {
+    entries: std::vec::Vec<(std::string::String, std::string::String)>,
+}
+
+impl Vars {
+    /// Borrow the entries for environment-aware execution methods.
+    #[must_use]
+    pub fn to_strs(&self) -> std::vec::Vec<(&str, &str)> {
+        self.entries
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect()
+    }
+}
+
+/// Collect process environment variables, keeping only Unicode names and values.
+///
+/// Non-Unicode entries are ignored. In particular, a declared variable that is
+/// present but non-Unicode is treated as if it were absent.
+#[must_use]
+pub fn vars_os() -> Vars {
+    collect_vars(std::env::vars_os())
+}
+
+fn collect_vars(
+    entries: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> Vars {
+    let entries = entries
+        .into_iter()
+        .filter_map(|(name, value)| {
+            Some((name.into_string().ok()?, value.into_string().ok()?))
+        })
+        .collect();
+    Vars { entries }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collects_borrowable_pairs() {
+        let vars = collect_vars([("PORT".into(), "8080".into())]);
+        assert_eq!(vars.to_strs(), [("PORT", "8080")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ignores_non_unicode_names_and_values() {
+        use std::os::unix::ffi::OsStringExt;
+        let invalid = std::ffi::OsString::from_vec(std::vec![0xff]);
+        let vars = collect_vars([
+            (invalid.clone(), "value".into()),
+            ("GOOD".into(), "ok".into()),
+            ("BAD_VALUE".into(), invalid),
+        ]);
+        assert_eq!(vars.to_strs(), [("GOOD", "ok")]);
     }
 }

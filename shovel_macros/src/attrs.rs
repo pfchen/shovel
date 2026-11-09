@@ -36,10 +36,10 @@ pub(crate) fn short_parse(attr: &Attribute) -> syn::Result<Option<char>> {
             if path.is_ident("short") {
                 Ok(None)
             } else {
-                Err(syn::Error::new(attr.span(), "Invalid attribute 'format'"))
+                Err(syn::Error::new(attr.span(), "Invalid attribute 'short'"))
             }
         }
-        _ => Err(syn::Error::new(attr.span(), "Invalid attribute 'format'")),
+        _ => Err(syn::Error::new(attr.span(), "Invalid attribute 'short'")),
     }
 }
 
@@ -72,5 +72,81 @@ pub(crate) fn format_parse(attr: &Attribute) -> syn::Result<String> {
             attr.span(),
             "'format' should be a name-value attribute",
         )),
+    }
+}
+
+pub(crate) fn env_parse(attr: &Attribute) -> syn::Result<String> {
+    let name = match &attr.meta {
+        Meta::NameValue(MetaNameValue {
+            value:
+                Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }),
+            ..
+        }) => s.value(),
+        _ => {
+            return Err(syn::Error::new(
+                attr.span(),
+                "'env' should be a name-value string attribute, e.g. #[env = \"NAME\"]",
+            ));
+        }
+    };
+
+    if name.is_empty() {
+        return Err(syn::Error::new(
+            attr.span(),
+            "environment variable name must not be empty",
+        ));
+    }
+    if !name.is_ascii() {
+        return Err(syn::Error::new(
+            attr.span(),
+            "environment variable name must be ASCII",
+        ));
+    }
+    if name.contains('=') || name.contains('\0') {
+        return Err(syn::Error::new(
+            attr.span(),
+            "environment variable name must not contain '=' or NUL",
+        ));
+    }
+    if name.trim() != name {
+        return Err(syn::Error::new(
+            attr.span(),
+            "environment variable name must not have leading or trailing whitespace",
+        ));
+    }
+
+    Ok(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::parse_quote;
+
+    #[test]
+    fn env_parse_accepts_valid_name() {
+        let attr: Attribute = parse_quote!(#[env = "PORT"]);
+        assert_eq!(env_parse(&attr).unwrap(), "PORT");
+    }
+
+    #[test]
+    fn env_parse_rejects_invalid_names() {
+        for attr in [
+            parse_quote!(#[env = ""]),
+            parse_quote!(#[env = "PÖRT"]),
+            parse_quote!(#[env = "A=B"]),
+            parse_quote!(#[env = "A\0B"]),
+            parse_quote!(#[env = " PORT"]),
+        ] {
+            assert!(env_parse(&attr).is_err());
+        }
+    }
+
+    #[test]
+    fn env_parse_rejects_wrong_shape() {
+        let attr: Attribute = parse_quote!(#[env = 123]);
+        assert!(env_parse(&attr).is_err());
     }
 }

@@ -57,6 +57,8 @@
 //! High-performance execution with compile-time memory allocation.
 //! Note: This method behavior differs based on the `generic_const_exprs` feature:
 //! ```no_run
+//! # #![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
+//! # #![allow(incomplete_features)]
 //! # #[cfg(feature = "std")] {
 //! # use shovel::*;
 //! # fn main() {
@@ -163,7 +165,7 @@ use crate::action::{Action, ActionResult};
 use crate::{Args, RawArgs};
 use crate::{ArrayPool, Pool};
 use crate::{CmdHelp, Version};
-use crate::{HelpOpt, Opts, VersionOpt};
+use crate::{EXIT_CODE_SUCCESS, EXIT_CODE_USAGE, HelpOpt, Opts, VersionOpt};
 
 /// `App` represents the root of a command-line application.
 ///
@@ -219,6 +221,8 @@ use crate::{HelpOpt, Opts, VersionOpt};
 /// ## High Performance: `run_heapless()` (Recommended)
 /// **Zero heap allocation** - Uses compile-time sized stack arrays
 /// ```no_run
+/// # #![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
+/// # #![allow(incomplete_features)]
 /// # #[cfg(feature = "std")] {
 /// # use shovel::*;
 /// # let app = App { name: "app", description: "desc", version: "1.0", authors: ["author"], copyright: "copy", action: Action::no_args(|| {}) };
@@ -296,7 +300,14 @@ use crate::{HelpOpt, Opts, VersionOpt};
 ///
 /// See also: [`Cmd`](crate::Cmd), [`Action`], [`Opts`], [`Args`], [`Subcmds`]
 #[derive(Debug)]
-pub struct App<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> {
+pub struct App<
+    'a,
+    const N: usize,
+    O: Opts,
+    A: Args,
+    C: Subcmds<O>,
+    R: crate::ActionReturn = (),
+> {
     /// The name of the application.
     pub name: &'a str,
     /// Description of the application.
@@ -308,10 +319,18 @@ pub struct App<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> {
     /// Copyright of the application.
     pub copyright: &'a str,
     /// The action of the application.
-    pub action: Action<O, A, O, C>,
+    pub action: Action<O, A, O, C, R>,
 }
 
-impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
+impl<
+    'a,
+    const N: usize,
+    O: Opts,
+    A: Args,
+    C: Subcmds<O>,
+    R: crate::ActionReturn,
+> App<'a, N, O, A, C, R>
+{
     const CMD_COUNT: usize = C::CMD_COUNT + 1;
 
     /// **🚀 High Performance**: Parse and run with zero heap allocation.
@@ -343,12 +362,13 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// # Returns
     ///
-    /// Returns a `fmt::Result`, which is `Ok(())` on success or an error on failure.
+    /// Returns the exit code, or `fmt::Error` if writing output fails.
     ///
     /// # Errors
     ///
-    /// - Returns an error if argument parsing fails.
-    /// - Returns an error if writing to the output fails.
+    /// - Parse failures are written to the writer and return
+    ///   [`EXIT_CODE_USAGE`].
+    /// - Returns an error only if writing output fails.
     ///
     /// # When to Use
     ///
@@ -372,6 +392,8 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// With `generic_const_exprs` (command count inferred automatically):
     /// ```
+    /// # #![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
+    /// # #![allow(incomplete_features)]
     /// # use shovel::*;
     /// # fn main() {
     /// App {
@@ -402,6 +424,8 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// Without `generic_const_exprs` (explicit command count required):
     /// ```
+    /// # #![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
+    /// # #![allow(incomplete_features)]
     /// # #[cfg(not(feature = "generic_const_exprs"))] {
     /// # use shovel::*;
     /// # fn main() {
@@ -438,11 +462,28 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
         self,
         writer: &mut W,
         args: &'a [&'a str],
-    ) -> fmt::Result
+    ) -> Result<i32, fmt::Error>
     where
         [(); C::CMD_COUNT + 1]: Sized,
     {
-        self.run_heapless_impl::<{ C::CMD_COUNT + 1 }, W>(writer, args)
+        self.run_heapless_impl::<{ C::CMD_COUNT + 1 }, W>(writer, args, &[])
+    }
+
+    /// Execute without internal allocation, with explicit environment fallback.
+    ///
+    /// # Errors
+    /// Returns an error if writing output fails.
+    #[cfg(feature = "generic_const_exprs")]
+    pub fn run_heapless_with_env<W: Writer>(
+        self,
+        writer: &mut W,
+        args: &'a [&'a str],
+        env: &'a [(&'a str, &'a str)],
+    ) -> Result<i32, fmt::Error>
+    where
+        [(); C::CMD_COUNT + 1]: Sized,
+    {
+        self.run_heapless_impl::<{ C::CMD_COUNT + 1 }, W>(writer, args, env)
     }
 
     /// **🚀 High Performance**: Parse and run with zero heap allocation.
@@ -475,12 +516,13 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// # Returns
     ///
-    /// Returns a `fmt::Result`, which is `Ok(())` on success or an error on failure.
+    /// Returns the exit code, or `fmt::Error` if writing output fails.
     ///
     /// # Errors
     ///
-    /// - Returns an error if argument parsing fails.
-    /// - Returns an error if writing to the output fails.
+    /// - Parse failures are written to the writer and return
+    ///   [`EXIT_CODE_USAGE`].
+    /// - Returns an error only if writing output fails.
     ///
     /// # Panics
     ///
@@ -509,6 +551,8 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// With `generic_const_exprs` (command count inferred automatically):
     /// ```
+    /// # #![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
+    /// # #![allow(incomplete_features)]
     /// # #[cfg(feature = "generic_const_exprs")] {
     /// # use shovel::*;
     /// # fn main() {
@@ -541,6 +585,8 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// Without `generic_const_exprs` (explicit command count required):
     /// ```
+    /// # #![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
+    /// # #![allow(incomplete_features)]
     /// # use shovel::*;
     /// # fn main() {
     /// App {
@@ -576,37 +622,56 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
         self,
         writer: &mut W,
         args: &'a [&'a str],
-    ) -> fmt::Result {
-        self.run_heapless_impl::<H, W>(writer, args)
+    ) -> Result<i32, fmt::Error> {
+        self.run_heapless_impl::<H, W>(writer, args, &[])
+    }
+
+    /// Execute without internal allocation, with explicit environment fallback.
+    ///
+    /// # Errors
+    /// Returns an error if writing output fails.
+    #[cfg(not(feature = "generic_const_exprs"))]
+    pub fn run_heapless_with_env<const H: usize, W: Writer>(
+        self,
+        writer: &mut W,
+        args: &'a [&'a str],
+        env: &'a [(&'a str, &'a str)],
+    ) -> Result<i32, fmt::Error> {
+        self.run_heapless_impl::<H, W>(writer, args, env)
     }
 
     fn run_heapless_impl<const H: usize, W: Writer>(
         self,
         writer: &mut W,
         args: &'a [&'a str],
-    ) -> fmt::Result {
+        env: &'a [(&'a str, &'a str)],
+    ) -> Result<i32, fmt::Error> {
         debug_assert!(Self::CMD_COUNT == H, "Mismatched command count");
         debug_assert!(!args.is_empty(), "No arguments provided");
 
         // Create RawArgs
-        let raw_args = RawArgs::new(&args[1..]);
+        let raw_args = RawArgs::with_env(&args[1..], env);
 
         // Creating the helps pool
         let mut helps = ArrayPool::<CmdHelp<'_>, H>::new();
 
         // Parsing help option
         if HelpOpt::parse(raw_args.opts(&BUILTIN_OPTS[..1])) {
-            return writer.write_help(self.help(helps.as_pool()).into_help(
-                self.name,
-                &[],
-                None,
-                None,
-            ));
+            return writer
+                .write_help(self.help(helps.as_pool()).into_help(
+                    self.name,
+                    &[],
+                    None,
+                    None,
+                ))
+                .map(|()| EXIT_CODE_SUCCESS);
         }
 
         // Parsing version option
         if VersionOpt::parse(raw_args.opts(&BUILTIN_OPTS[1..2])) {
-            return writer.write_version(self.version());
+            return writer
+                .write_version(self.version())
+                .map(|()| EXIT_CODE_SUCCESS);
         }
 
         #[cfg(feature = "completion")]
@@ -616,17 +681,21 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
                 CompletionOpt::parse(raw_args.opts(&BUILTIN_OPTS[2..3]))
             {
                 match completion {
-                    Err(e) => return writer.write_error(e),
+                    Err(e) => {
+                        return writer.write_error(e).map(|()| EXIT_CODE_USAGE);
+                    }
                     Ok(shell) => {
-                        return writer.write_completion(
-                            self.help(helps.as_pool()).into_help(
-                                self.name,
-                                &[],
-                                None,
-                                None,
-                            ),
-                            shell,
-                        );
+                        return writer
+                            .write_completion(
+                                self.help(helps.as_pool()).into_help(
+                                    self.name,
+                                    &[],
+                                    None,
+                                    None,
+                                ),
+                                shell,
+                            )
+                            .map(|()| EXIT_CODE_SUCCESS);
                     }
                 }
             }
@@ -634,9 +703,9 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
 
         // Parsing global options
         let (global_opts, start_pos) =
-            match O::parse(&raw_args.opts(O::specs())) {
+            match O::parse_with_env(&raw_args.opts(O::specs()), env) {
                 Err(e) => {
-                    return writer.write_error(e);
+                    return writer.write_error(e).map(|()| EXIT_CODE_USAGE);
                 }
                 Ok((opts, size)) => {
                     raw_args.consume(size);
@@ -645,7 +714,9 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
             };
 
         match self.action.run(self.name, &raw_args, global_opts, true) {
-            ActionResult::Error(e) => writer.write_error(e),
+            ActionResult::Error(e) => {
+                writer.write_error(e).map(|()| EXIT_CODE_USAGE)
+            }
             ActionResult::ShowHelp { cmd, pos } => {
                 let subpath = if cmd == self.name && pos == start_pos {
                     &[]
@@ -655,20 +726,24 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
                 let Some(help) = self.help(helps.as_pool()).find(subpath, cmd)
                 else {
                     // This should not happen if the command structure is valid
-                    return writer.write_error(ParseError::UnknownOption(cmd));
+                    return writer
+                        .write_error(ParseError::UnknownOption(cmd))
+                        .map(|()| EXIT_CODE_USAGE);
                 };
 
-                writer.write_help(help.into_help(
-                    self.name,
-                    subpath,
-                    Some(O::specs()),
-                    Some(BUILTIN_OPTS),
-                ))
+                writer
+                    .write_help(help.into_help(
+                        self.name,
+                        subpath,
+                        Some(O::specs()),
+                        Some(BUILTIN_OPTS),
+                    ))
+                    .map(|()| EXIT_CODE_SUCCESS)
             }
-            ActionResult::Suggestion(suggestion) => {
-                writer.write_suggestion(suggestion)
-            }
-            ActionResult::Success => Ok(()),
+            ActionResult::Suggestion(suggestion) => writer
+                .write_suggestion(suggestion)
+                .map(|()| EXIT_CODE_USAGE),
+            ActionResult::Success(code) => Ok(code),
         }
     }
 
@@ -703,12 +778,13 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// # Returns
     ///
-    /// Returns a `fmt::Result`, which is `Ok(())` on success or an error on failure.
+    /// Returns the exit code, or `fmt::Error` if writing output fails.
     ///
     /// # Errors
     ///
-    /// - Returns an error if argument parsing fails.
-    /// - Returns an error if writing to the output fails.
+    /// - Parse failures are written to the writer and return
+    ///   [`EXIT_CODE_USAGE`].
+    /// - Returns an error only if writing output fails.
     ///
     /// # When to Use
     ///
@@ -761,26 +837,44 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
         self,
         writer: &mut W,
         args: &'a [&'a str],
-    ) -> fmt::Result {
+    ) -> Result<i32, fmt::Error> {
+        self.run_with_args_and_env(writer, args, &[])
+    }
+
+    /// Execute with explicitly supplied environment fallback values.
+    ///
+    /// # Errors
+    /// Returns an error if writing output fails.
+    #[cfg(feature = "std")]
+    pub fn run_with_args_and_env<W: Writer>(
+        self,
+        writer: &mut W,
+        args: &'a [&'a str],
+        env: &'a [(&'a str, &'a str)],
+    ) -> Result<i32, fmt::Error> {
         // Create RawArgs
-        let raw_args = RawArgs::new(&args[1..]);
+        let raw_args = RawArgs::with_env(&args[1..], env);
 
         // Create the helps pool
         let mut helps = crate::pool::VecPool::new(Self::CMD_COUNT);
 
         // Parse help option
         if HelpOpt::parse(raw_args.opts(&BUILTIN_OPTS[..1])) {
-            return writer.write_help(self.help(helps.as_pool()).into_help(
-                self.name,
-                &[],
-                None,
-                None,
-            ));
+            return writer
+                .write_help(self.help(helps.as_pool()).into_help(
+                    self.name,
+                    &[],
+                    None,
+                    None,
+                ))
+                .map(|()| EXIT_CODE_SUCCESS);
         }
 
         // Parse version option
         if VersionOpt::parse(raw_args.opts(&BUILTIN_OPTS[1..2])) {
-            return writer.write_version(self.version());
+            return writer
+                .write_version(self.version())
+                .map(|()| EXIT_CODE_SUCCESS);
         }
 
         #[cfg(feature = "completion")]
@@ -790,17 +884,21 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
                 CompletionOpt::parse(raw_args.opts(&BUILTIN_OPTS[2..3]))
             {
                 match completion {
-                    Err(e) => return writer.write_error(e),
+                    Err(e) => {
+                        return writer.write_error(e).map(|()| EXIT_CODE_USAGE);
+                    }
                     Ok(shell) => {
-                        return writer.write_completion(
-                            self.help(helps.as_pool()).into_help(
-                                self.name,
-                                &[],
-                                None,
-                                None,
-                            ),
-                            shell,
-                        );
+                        return writer
+                            .write_completion(
+                                self.help(helps.as_pool()).into_help(
+                                    self.name,
+                                    &[],
+                                    None,
+                                    None,
+                                ),
+                                shell,
+                            )
+                            .map(|()| EXIT_CODE_SUCCESS);
                     }
                 }
             }
@@ -808,9 +906,9 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
 
         // Parse global options
         let (global_opts, start_pos) =
-            match O::parse(&raw_args.opts(O::specs())) {
+            match O::parse_with_env(&raw_args.opts(O::specs()), env) {
                 Err(e) => {
-                    return writer.write_error(e);
+                    return writer.write_error(e).map(|()| EXIT_CODE_USAGE);
                 }
                 Ok((opts, size)) => {
                     raw_args.consume(size);
@@ -819,7 +917,9 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
             };
 
         match self.action.run(self.name, &raw_args, global_opts, true) {
-            ActionResult::Error(e) => writer.write_error(e),
+            ActionResult::Error(e) => {
+                writer.write_error(e).map(|()| EXIT_CODE_USAGE)
+            }
             ActionResult::ShowHelp { cmd, pos } => {
                 let subpath = if cmd == self.name && pos == start_pos {
                     &[]
@@ -829,32 +929,37 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
                 let Some(help) = self.help(helps.as_pool()).find(subpath, cmd)
                 else {
                     // This should not happen if the command structure is valid
-                    return writer.write_error(ParseError::UnknownOption(cmd));
+                    return writer
+                        .write_error(ParseError::UnknownOption(cmd))
+                        .map(|()| EXIT_CODE_USAGE);
                 };
 
-                writer.write_help(help.into_help(
-                    self.name,
-                    subpath,
-                    Some(O::specs()),
-                    Some(BUILTIN_OPTS),
-                ))
+                writer
+                    .write_help(help.into_help(
+                        self.name,
+                        subpath,
+                        Some(O::specs()),
+                        Some(BUILTIN_OPTS),
+                    ))
+                    .map(|()| EXIT_CODE_SUCCESS)
             }
-            ActionResult::Suggestion(suggestion) => {
-                writer.write_suggestion(suggestion)
-            }
-            ActionResult::Success => Ok(()),
+            ActionResult::Suggestion(suggestion) => writer
+                .write_suggestion(suggestion)
+                .map(|()| EXIT_CODE_USAGE),
+            ActionResult::Success(code) => Ok(code),
         }
     }
 
     /// **✨ Standard**: Parse and run with standard I/O and small heap allocation.
     ///
     /// This is the **simplest method** for typical CLI applications. It's a convenience
-    /// wrapper around [`run_with_args()`](Self::run_with_args) that uses standard I/O
-    /// and automatically collects command-line arguments.
+    /// wrapper around [`run_with_args_and_env()`](Self::run_with_args_and_env) that uses
+    /// standard I/O and automatically collects command-line arguments and process
+    /// environment variables.
     ///
     /// ## Performance Characteristics
     /// - **Small heap allocation** - Same as `run_with_args()` (uses `VecPool<T>`)
-    /// - **Automatic I/O** - Uses stdout and `std::env::args()`
+    /// - **Automatic I/O** - Uses stdout, `std::env::args()`, and process environment variables
     /// - **Simplest API** - No parameters required
     /// - **Production ready** - Suitable for most CLI applications
     ///
@@ -867,12 +972,13 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///
     /// # Returns
     ///
-    /// Returns a `fmt::Result`, which is `Ok(())` on success or an error on failure.
+    /// Returns the exit code, or `fmt::Error` if writing output fails.
     ///
     /// # Errors
     ///
-    /// - Returns an error if argument parsing fails.
-    /// - Returns an error if writing to stdout fails.
+    /// - Parse failures are written to the writer and return
+    ///   [`EXIT_CODE_USAGE`].
+    /// - Returns an error only if writing output fails.
     ///
     /// # When to Use
     ///
@@ -893,7 +999,7 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     /// use shovel::*;
     ///
     /// fn main() {
-    ///     App {
+    ///     let code = App {
     ///         name: "myapp",
     ///         description: "A simple app",
     ///         version: "0.1.0",
@@ -903,16 +1009,31 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> App<'a, N, O, A, C> {
     ///     }
     ///     .run()
     ///     .expect("Failed to run application");
+    ///     std::process::exit(code);
     /// }
     /// ```
     ///
     /// This example shows how to use the `run` method in a typical main function.
     #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     #[cfg(feature = "std")]
-    pub fn run(self) -> fmt::Result {
-        self.run_with_args(
+    pub fn run(self) -> Result<i32, fmt::Error> {
+        self.run_with_args_and_env(
             &mut crate::writer::Stdout::new(),
             &crate::env::args().to_strs(),
+            &crate::env::vars_os().to_strs(),
+        )
+    }
+
+    /// Run using process arguments and explicitly supplied environment values.
+    ///
+    /// # Errors
+    /// Returns an error if writing output fails.
+    #[cfg(feature = "std")]
+    pub fn run_with_env(self, env: &[(&str, &str)]) -> Result<i32, fmt::Error> {
+        self.run_with_args_and_env(
+            &mut crate::writer::Stdout::new(),
+            &crate::env::args().to_strs(),
+            env,
         )
     }
 

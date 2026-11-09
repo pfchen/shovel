@@ -6,7 +6,14 @@ use syn::{
     PathArguments, Type, Variant, spanned::Spanned,
 };
 
-use crate::attrs::{doc_parse, format_parse, long_parse, short_parse};
+use crate::attrs::{
+    doc_parse, env_parse, format_parse, long_parse, short_parse,
+};
+
+/// Identifiers used by generated parsers must not capture user field bindings.
+pub(crate) fn parser_ident(name: &str) -> Ident {
+    Ident::new(&format!("__shovel_{name}"), Span::mixed_site())
+}
 
 pub(crate) struct TypeInfo<'a> {
     pub(crate) ty: &'a Type,
@@ -20,6 +27,7 @@ pub(crate) struct OptField<'a> {
     pub(crate) ident: Ident,
     pub(crate) ty_info: TypeInfo<'a>,
     pub(crate) short: Option<char>,
+    pub(crate) env: Option<String>,
     pub(crate) long: String,
     pub(crate) format: Option<String>,
     pub(crate) description: String,
@@ -53,15 +61,32 @@ pub(crate) struct Opts<'a> {
 }
 
 impl<'a> OptField<'a> {
+    pub(crate) fn binding(&self) -> Ident {
+        parser_ident(&format!(
+            "field_{}",
+            self.ident.to_string().trim_start_matches("r#")
+        ))
+    }
+
     pub(crate) fn parse(field: &'a Field) -> syn::Result<Self> {
         let ident = field.ident.clone().unwrap();
         let description = doc_parse(&field.attrs);
         let mut short = None;
+        let mut env = None;
         let mut long = None;
         let mut format = None;
 
         for attr in &field.attrs {
-            if attr.path().is_ident("short") {
+            if attr.path().is_ident("env") {
+                let value = env_parse(attr)?;
+                if env.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "duplicate `#[env]` attribute",
+                    ));
+                }
+                env = Some(value);
+            } else if attr.path().is_ident("short") {
                 short = match short_parse(attr) {
                     Ok(v) => match v {
                         None => Some(ident.to_string().chars().next().unwrap()),
@@ -83,6 +108,7 @@ impl<'a> OptField<'a> {
             ident,
             ty_info,
             short,
+            env,
             long,
             format,
             description,
@@ -154,7 +180,7 @@ impl<'a> Opts<'a> {
     pub(crate) fn init_fields(&self) -> Vec<proc_macro2::TokenStream> {
         let mut stmts = Vec::new();
         for f in &self.fields {
-            let ident = f.ident.clone();
+            let ident = f.binding();
             if f.ty_info.flag {
                 stmts.push(quote! {
                     let mut #ident = false;
@@ -169,9 +195,14 @@ impl<'a> Opts<'a> {
     }
 
     pub(crate) fn matches(&self) -> Vec<proc_macro2::TokenStream> {
+        let opt = parser_ident("opt");
+        let s = parser_ident("s");
+        let v = parser_ident("v");
+        let part = parser_ident("part");
+        let existing = parser_ident("existing");
         let mut matches = Vec::new();
         for f in &self.fields {
-            let ident = f.ident.clone();
+            let ident = f.binding();
             let lit = LitStr::new(&f.long, f.ident.span());
             let ty = f.ty_info.ty;
             let match_arm = match f.short {
@@ -189,28 +220,28 @@ impl<'a> Opts<'a> {
                 // Handle list types like Vec<String> or Option<Vec<String>>
                 matches.push(quote! {
                     #match_arm => {
-                        match opt.1 {
+                        match #opt.1 {
                             None => {
                                 Err(::shovel::ParseError::MissingValueForOption { name: #lit })?;
                             },
-                            Some(s) => {
+                            Some(#s) => {
                                 // For list types, we need to parse comma-separated values
-                                let mut v = Vec::new();
-                                for part in s.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                                    v.push(part.parse::<#ty>().map_err(|_| {
+                                let mut #v = Vec::new();
+                                for #part in #s.split(',').map(|#s| #s.trim()).filter(|#s| !#s.is_empty()) {
+                                    #v.push(#part.parse::<#ty>().map_err(|_| {
                                         ::shovel::ParseError::InvalidOptionValue {
                                             name: #lit,
-                                            value: part,
+                                            value: #part,
                                             expected: stringify!(#ty)
                                         }
                                     })?);
                                 }
                                 match &mut #ident {
                                     None => {
-                                        #ident = Some(v);
+                                        #ident = Some(#v);
                                     },
-                                    Some(existing) => {
-                                        existing.extend(v);
+                                    Some(#existing) => {
+                                        #existing.extend(#v);
                                     }
                                 }
                             }
@@ -220,15 +251,15 @@ impl<'a> Opts<'a> {
             } else if !f.ty_info.required {
                 matches.push(quote! {
                     #match_arm => {
-                        match opt.1 {
+                        match #opt.1 {
                             None => {
                                 Err(::shovel::ParseError::MissingValueForOption { name: #lit })?;
                             },
-                            Some(s) => {
-                                #ident = Some(s.parse::<#ty>().map_err(|_| {
+                            Some(#s) => {
+                                #ident = Some(#s.parse::<#ty>().map_err(|_| {
                                     ::shovel::ParseError::InvalidOptionValue {
                                         name: #lit,
-                                        value: s,
+                                        value: #s,
                                         expected: stringify!(#ty)
                                     }
                                 })?);
@@ -239,14 +270,14 @@ impl<'a> Opts<'a> {
             } else if f.ty_info.flag {
                 matches.push(quote! {
                     #match_arm => {
-                        match opt.1 {
+                        match #opt.1 {
                             None => {
                                 #ident = true;
                             },
-                            Some(s) => {
+                            Some(#s) => {
                                 Err(::shovel::ParseError::UnexpectedFlagValue{
                                     name: #lit,
-                                    value: s
+                                    value: #s
                                 })?;
                             }
                         }
@@ -255,15 +286,15 @@ impl<'a> Opts<'a> {
             } else {
                 matches.push(quote! {
                     #match_arm => {
-                        match opt.1 {
+                        match #opt.1 {
                             None => {
                                 Err(::shovel::ParseError::MissingValueForOption { name: #lit })?;
                             },
-                            Some(s) => {
-                                #ident = Some(s.parse::<#ty>().map_err(|_| {
+                            Some(#s) => {
+                                #ident = Some(#s.parse::<#ty>().map_err(|_| {
                                     ::shovel::ParseError::InvalidOptionValue{
                                         name: #lit,
-                                        value: s,
+                                        value: #s,
                                         expected: stringify!(#ty)
                                     }
                                 })?);
@@ -277,16 +308,58 @@ impl<'a> Opts<'a> {
         matches
     }
 
+    pub(crate) fn env_stmts(&self) -> Vec<proc_macro2::TokenStream> {
+        let env = parser_ident("env");
+        let value = parser_ident("value");
+        let parsed = parser_ident("parsed");
+        let part = parser_ident("part");
+        let key = parser_ident("key");
+        self.fields.iter().filter_map(|f| {
+            let name = f.env.as_ref()?;
+            let ident = f.binding();
+            let ty = f.ty_info.ty;
+            let absent = if f.ty_info.flag { quote! { !#ident } } else { quote! { #ident.is_none() } };
+            let parse = if f.ty_info.is_list {
+                quote! {
+                    let mut #parsed = Vec::new();
+                    for #part in #value.split(',').map(str::trim).filter(|#part| !#part.is_empty()) {
+                        #parsed.push(#part.parse::<#ty>().map_err(|_| ::shovel::ParseError::InvalidEnvironmentValue {
+                            name: #name, value: #part, expected: stringify!(#ty),
+                        })?);
+                    }
+                    #ident = Some(#parsed);
+                }
+            } else {
+                let assign = if f.ty_info.flag { quote! { #ident = #parsed; } } else { quote! { #ident = Some(#parsed); } };
+                quote! {
+                    let #parsed = #value.parse::<#ty>().map_err(|_| ::shovel::ParseError::InvalidEnvironmentValue {
+                        name: #name, value: #value, expected: stringify!(#ty),
+                    })?;
+                    #assign
+                }
+            };
+            Some(quote! {
+                if #absent {
+                    if let Some((_, #value)) = #env.iter().find(|(#key, _)| *#key == #name) {
+                        let #value = *#value;
+                        #parse
+                    }
+                }
+            })
+        }).collect()
+    }
+
     pub(crate) fn required_stmts(&self) -> Vec<proc_macro2::TokenStream> {
+        let v = parser_ident("v");
         let mut stmts = Vec::new();
         for f in &self.fields {
-            let ident = f.ident.clone();
+            let ident = f.binding();
             let lit = LitStr::new(&f.long, Span::call_site());
             if !f.ty_info.flag && f.ty_info.required {
                 stmts.push(quote! {
                     let #ident = match #ident {
                         None => Err(::shovel::ParseError::MissingRequiredOption { name: #lit })?,
-                        Some(v) => v,
+                        Some(#v) => #v,
                     };
                 })
             }
@@ -805,7 +878,13 @@ impl ToTokens for Opts<'_> {
             let ty = LitStr::new(&f.ty_info.name, f.ty_info.ty.span());
             let required = f.ty_info.required;
             let flag = f.ty_info.flag;
-            let description = LitStr::new(&f.description, f.ident.span());
+            let description = LitStr::new(
+                &match &f.env {
+                    Some(name) => format!("{} [env: {}]", f.description, name),
+                    None => f.description.clone(),
+                },
+                f.ident.span(),
+            );
             let short = match f.short {
                 None => quote! {None},
                 Some(c) => {
@@ -896,5 +975,28 @@ impl ToTokens for ArgGroups<'_> {
                 quote! { &[#(#groups),*] }.to_tokens(tokens);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_env_attributes_report_the_duplicate() {
+        let input = syn::parse_quote! {
+            struct InvalidOpts {
+                #[env = "APP_PORT"]
+                #[env = "OTHER_PORT"]
+                port: Option<u16>,
+            }
+        };
+        let error = match Opts::parse(&input) {
+            Ok(_) => {
+                panic!("duplicate environment attributes must be rejected")
+            }
+            Err(error) => error,
+        };
+        assert_eq!(error.to_string(), "duplicate `#[env]` attribute");
     }
 }

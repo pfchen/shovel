@@ -15,18 +15,21 @@
 // `./target/x86_64-unknown-linux-gnu/debug/examples/no-std-adder --help`
 // `./target/x86_64-unknown-linux-gnu/debug/examples/no-std-adder --version`
 
-#![feature(lang_items, core_intrinsics, rustc_private)]
-#![allow(internal_features)]
+#![cfg_attr(not(feature = "std"), feature(lang_items))]
+#![allow(internal_features, incomplete_features)]
+#![cfg_attr(feature = "generic_const_exprs", feature(generic_const_exprs))]
 #![no_std]
 #![no_main]
 //
 
-// Necessary for `panic = "unwind"` builds on some platforms.
-#![feature(panic_unwind)]
-extern crate unwind;
-
 // Pull in the system libc library for what crt0.o likely requires.
 extern crate libc;
+
+// Supply the C runtime and unwind symbols when std is absent.
+#[cfg(not(feature = "std"))]
+#[link(name = "c")]
+#[link(name = "gcc_s")]
+unsafe extern "C" {}
 
 use core::ffi::{CStr, c_char, c_int};
 use core::fmt::Write;
@@ -64,6 +67,12 @@ impl core::fmt::Write for Stdout {
 pub struct SumArgs {
     first: f64,
     second: f64,
+}
+
+#[derive(Opts)]
+pub struct SumOpts {
+    #[env = "SUM_FACTOR"]
+    factor: f64,
 }
 
 macro_rules! libc_println {
@@ -156,21 +165,24 @@ extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
         version: "0.1.0",
         authors: ["Author Name <author@example.com>"],
         copyright: "(c) 2026 Company Name",
-        action: Action::args(|args: SumArgs| {
+        action: Action::opts_args(|opts: SumOpts, args: SumArgs| {
             libc_println!(
                 "{} + {} = {}",
                 args.first,
                 args.second,
-                args.first + args.second
+                (args.first + args.second) * opts.factor
             );
         }),
     };
 
+    // Borrowed fallback input works without std or heap allocation.
+    let env = [("SUM_FACTOR", "1")];
     #[cfg(feature = "generic_const_exprs")]
-    let result = app.run_heapless(&mut Stdout::new(), &args);
+    let result = app.run_heapless_with_env(&mut Stdout::new(), &args, &env);
 
     #[cfg(not(feature = "generic_const_exprs"))]
-    let result = app.run_heapless::<1, _>(&mut Stdout::new(), &args);
+    let result =
+        app.run_heapless_with_env::<1, _>(&mut Stdout::new(), &args, &env);
 
     match result {
         Err(_) => {
@@ -181,7 +193,7 @@ extern "C" fn main(argc: c_int, argv: *const *const c_char) -> c_int {
             );
             1
         }
-        Ok(_) => 0,
+        Ok(code) => code,
     }
 }
 
@@ -196,7 +208,7 @@ fn rust_eh_personality() {
 #[cfg(not(feature = "std"))]
 #[panic_handler]
 fn panic_handler(_info: &core::panic::PanicInfo) -> ! {
-    core::intrinsics::abort()
+    unsafe { libc::abort() }
 }
 
 fn libc_write(msg: &str) {

@@ -10,7 +10,7 @@
 use shovel::*;
 
 fn main() {
-    App {
+    let code = App {
         name: "echo",
         description: "A simple echo application",
         version: "0.1.0",
@@ -18,8 +18,11 @@ fn main() {
         copyright: "(c) 2026 Company Name",
         action: Action::args(|msg: Vec<String>| {
             println!("{}", msg.join(" "));
+
+            0
         }),
     }
     .run()
     .expect("Failed to run the application");
+    std::process::exit(code);
 }

@@ -55,7 +55,7 @@ impl Writer for MyLogger {
 }
 
 fn main() {
-    App {
+    let code = App {
         name: "custom-writer",
         description: "A custom writer example",
         version: "0.1.0",
@@ -63,8 +63,11 @@ fn main() {
         copyright: "(c) 2026 Company Name",
         action: Action::no_args(|| {
             println!("A custom writer example");
+
+            0
         }),
     }
     .run_with_args(&mut MyLogger::new(), &shovel::env::args().to_strs())
     .expect("Failed to run the application");
+    std::process::exit(code);
 }

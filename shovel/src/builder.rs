@@ -195,7 +195,14 @@ use crate::{Action, App, Args, Cmd, Opts, Subcmds};
 /// - `copyright`: The copyright notice for the application, typically displayed in the footer.
 /// - `action`: The main action of the application, defining what happens when the app is run.
 #[derive(Debug)]
-pub struct AppBuilder<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> {
+pub struct AppBuilder<
+    'a,
+    const N: usize,
+    O: Opts,
+    A: Args,
+    C: Subcmds<O>,
+    R: crate::ActionReturn = (),
+> {
     /// The name of the application.
     name: Option<&'a str>,
     /// A brief description of the application.
@@ -207,7 +214,7 @@ pub struct AppBuilder<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> {
     /// The copyright notice for the application.
     copyright: Option<&'a str>,
     /// The action of the application.
-    action: Option<Action<O, A, O, C>>,
+    action: Option<Action<O, A, O, C, R>>,
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
@@ -233,17 +240,30 @@ pub struct AppBuilder<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>> {
 /// assert_eq!(cmd.category, Some("utils"));
 /// ```
 #[derive(Debug)]
-pub struct CmdBuilder<'a, O: Opts, A: Args, G: Opts, C: Subcmds<G>> {
+pub struct CmdBuilder<
+    'a,
+    O: Opts,
+    A: Args,
+    G: Opts,
+    C: Subcmds<G>,
+    R: crate::ActionReturn = (),
+> {
     name: Option<&'a str>,
     description: Option<&'a str>,
     category: Option<&'a str>,
-    action: Option<Action<O, A, G, C>>,
+    action: Option<Action<O, A, G, C, R>>,
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 #[cfg(feature = "std")]
-impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>>
-    AppBuilder<'a, N, O, A, C>
+impl<
+    'a,
+    const N: usize,
+    O: Opts,
+    A: Args,
+    C: Subcmds<O>,
+    R: crate::ActionReturn,
+> AppBuilder<'a, N, O, A, C, R>
 {
     /// Creates a new instance of `AppBuilder`.
     ///
@@ -371,7 +391,7 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>>
     ///
     /// Returns the updated `AppBuilder` instance for method chaining.
     #[must_use]
-    pub fn action(mut self, action: Action<O, A, O, C>) -> Self {
+    pub fn action(mut self, action: Action<O, A, O, C, R>) -> Self {
         self.action = Some(action);
         self
     }
@@ -390,7 +410,7 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>>
     ///
     /// Returns a new `App` instance with the configured properties.
     #[must_use]
-    pub fn build(self) -> App<'a, N, O, A, C> {
+    pub fn build(self) -> App<'a, N, O, A, C, R> {
         App {
             name: self.name.expect("Name must be set"),
             description: self.description.expect("Description must be set"),
@@ -404,7 +424,9 @@ impl<'a, const N: usize, O: Opts, A: Args, C: Subcmds<O>>
 
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 #[cfg(feature = "std")]
-impl<'a, O: Opts, A: Args, G: Opts, C: Subcmds<G>> CmdBuilder<'a, O, A, G, C> {
+impl<'a, O: Opts, A: Args, G: Opts, C: Subcmds<G>, R: crate::ActionReturn>
+    CmdBuilder<'a, O, A, G, C, R>
+{
     /// Creates a new `CmdBuilder` with the specified name.
     ///
     /// This method initializes the builder with the provided name and default values
@@ -476,7 +498,7 @@ impl<'a, O: Opts, A: Args, G: Opts, C: Subcmds<G>> CmdBuilder<'a, O, A, G, C> {
     /// # Returns
     /// The builder instance, allowing for method chaining.
     #[must_use]
-    pub fn action(mut self, action: Action<O, A, G, C>) -> Self {
+    pub fn action(mut self, action: Action<O, A, G, C, R>) -> Self {
         self.action = Some(action);
         self
     }
@@ -494,7 +516,7 @@ impl<'a, O: Opts, A: Args, G: Opts, C: Subcmds<G>> CmdBuilder<'a, O, A, G, C> {
     ///
     /// A fully constructed `Cmd` instance.
     #[must_use]
-    pub fn build(self) -> Cmd<'a, O, A, G, C> {
+    pub fn build(self) -> Cmd<'a, O, A, G, C, R> {
         Cmd {
             name: self.name.expect("Name must be set"),
             description: self.description.expect("Description must be set"),

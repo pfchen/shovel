@@ -71,13 +71,14 @@ pub(crate) fn impl_subcmds(tokens: TokenStream) -> TokenStream {
 pub(crate) fn gen_generics(number: u16) -> proc_macro2::TokenStream {
     let mut generics = quote! { 'a, G: crate::Opts };
     for i in 0..number {
-        let (o, a, c) = (
+        let (o, a, c, r) = (
             format_ident!("O{}", i.to_string()),
             format_ident!("A{}", i.to_string()),
             format_ident!("C{}", i.to_string()),
+            format_ident!("R{}", i.to_string()),
         );
         generics = quote! {
-            #generics, #o: crate::Opts, #a: crate::Args, #c: crate::Subcmds<G>
+            #generics, #o: crate::Opts, #a: crate::Args, #c: crate::Subcmds<G>, #r: crate::ActionReturn
         }
     }
     quote! { < #generics > }
@@ -87,12 +88,13 @@ pub(crate) fn gen_tuple(number: u16) -> proc_macro2::TokenStream {
     let number = number as usize;
     let mut tys = quote!();
     for i in 0..number {
-        let (o, a, c) = (
+        let (o, a, c, r) = (
             format_ident!("O{}", i.to_string()),
             format_ident!("A{}", i.to_string()),
             format_ident!("C{}", i.to_string()),
+            format_ident!("R{}", i.to_string()),
         );
-        tys = quote! { #tys Cmd<'a, #o, #a, G, #c>, };
+        tys = quote! { #tys Cmd<'a, #o, #a, G, #c, #r>, };
     }
     quote! { ( #tys ) }
 }

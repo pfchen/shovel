@@ -7,9 +7,19 @@ use std::process::Command;
 
 /// Helper to run an example with arguments and capture output.
 fn run_example(example: &str, args: &[&str]) -> (bool, String, String) {
+    run_example_with_env(example, args, &[])
+}
+
+/// Helper to run an example with arguments and environment values.
+fn run_example_with_env(
+    example: &str,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> (bool, String, String) {
     let output = Command::new("cargo")
         .args(["run", "--example", example, "--"])
         .args(args)
+        .envs(env.iter().copied())
         .output()
         .expect("Failed to execute cargo run");
 
@@ -510,7 +520,8 @@ mod error_handling {
 
     #[test]
     fn test_unknown_global_option() {
-        let (_, _, stderr) = run_example("hello", &["--unknown"]);
+        let (success, _, stderr) = run_example("hello", &["--unknown"]);
+        assert!(!success, "Invalid input must return a failing exit status");
         assert!(
             stderr.contains("Unknown option") || stderr.contains("unknown")
         );
@@ -523,5 +534,31 @@ mod error_handling {
             stderr.contains("Unknown option")
                 || stderr.contains("not-a-valid-option")
         );
+    }
+}
+
+mod env_fallback_example {
+    use super::*;
+
+    #[test]
+    fn run_reads_process_environment() {
+        let (success, stdout, stderr) = run_example_with_env(
+            "env-fallback",
+            &[],
+            &[("SHOVEL_ENV_FALLBACK", "from-process-env")],
+        );
+        assert!(success, "Expected success but failed.\nStderr: {stderr}");
+        assert_eq!(stdout.trim(), "from-process-env");
+    }
+
+    #[test]
+    fn cli_values_override_process_environment() {
+        let (success, stdout, stderr) = run_example_with_env(
+            "env-fallback",
+            &["--value", "from-cli"],
+            &[("SHOVEL_ENV_FALLBACK", "from-process-env")],
+        );
+        assert!(success, "Expected success but failed.\nStderr: {stderr}");
+        assert_eq!(stdout.trim(), "from-cli");
     }
 }

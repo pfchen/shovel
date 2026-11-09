@@ -119,6 +119,12 @@
 //! - **`#[long = "custom-name"]`** - Sets the long option name (defaults to kebab-case field name, e.g. `max_connections` -> `max-connections`)
 //! - **`#[short = 'c']`** - Sets a short flag (single character) for the option
 //! - **`#[format = "VALUE"]`** - Customizes the value name in help text (e.g. showing FILE instead of the field name)
+//! - **`#[env = "NAME"]`** - Uses `NAME` as a fallback when the option is absent from the command line.
+//!   Names must be non-empty ASCII without `=`, NUL, or surrounding whitespace.
+//!   Values are parsed like command-line values; lists are comma-separated and
+//!   booleans accept `true`/`false`. CLI values take precedence, required fields
+//!   are checked after fallback, and the first matching environment pair wins.
+//!   Non-Unicode process environment entries are ignored.
 //!
 //! ### `#[derive(Args)]` Attributes
 //!
@@ -221,6 +227,13 @@ mod subcmds;
 /// - `#[long = "custom-name"]` - Sets the long option name (defaults to kebab-case field name)
 /// - `#[short = 'c']` - Sets a short flag for the option (e.g., `-p` for `--port`)
 /// - `#[format = "VALUE"]` - Customizes the value name in help text (e.g. showing FILE instead of the field name)
+/// - `#[env = "NAME"]` - Uses `NAME` as a fallback when the option is absent
+///   from the command line. Names must be non-empty ASCII without `=`, NUL, or
+///   surrounding whitespace. Values are parsed like command-line values; lists
+///   are comma-separated and booleans accept `true`/`false`. CLI values take
+///   precedence, required fields are checked after fallback, and the first
+///   matching environment pair wins. Non-Unicode process environment entries
+///   are ignored.
 ///
 /// # Example
 ///
@@ -306,7 +319,7 @@ mod subcmds;
 ///     port: u16,
 /// }
 /// ```
-#[proc_macro_derive(Opts, attributes(short, long, format))]
+#[proc_macro_derive(Opts, attributes(short, long, format, env))]
 pub fn opts_derive(input: TokenStream) -> TokenStream {
     let input = match syn::parse(input) {
         Err(e) => return e.to_compile_error().into(),

@@ -44,6 +44,8 @@ mod completion_tests {
                                 cx.global_opts.debug,
                             );
                             println!("Hello!");
+
+                            0
                         },
                     ),
                 },
@@ -57,6 +59,8 @@ mod completion_tests {
                         category: None,
                         action: Action::no_args(|| {
                             println!("Time!");
+
+                            0
                         }),
                     },)),
                 },
@@ -95,6 +99,8 @@ mod completion_tests {
                 action: Action::handler(
                     |_cx: Context<TestOpts, TestArgs, GlobalOpts>| {
                         println!("Hello!");
+
+                        0
                     },
                 ),
             },)),
@@ -131,6 +137,8 @@ mod completion_tests {
                 action: Action::handler(
                     |_cx: Context<TestOpts, TestArgs, GlobalOpts>| {
                         println!("Hello!");
+
+                        0
                     },
                 ),
             },)),
@@ -189,6 +197,8 @@ mod completion_tests {
                 action: Action::handler(
                     |_cx: Context<SpecialOpts, SpecialArgs, GlobalOpts>| {
                         println!("Special!");
+
+                        0
                     },
                 ),
             },)),

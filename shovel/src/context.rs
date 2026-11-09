@@ -193,7 +193,8 @@ impl<O: Opts, A: Args, G: Opts> Context<O, A, G> {
         raw_args: &'a RawArgs<'a>,
         global_opts: G,
     ) -> Result<Self, ParseError<'a>> {
-        let (opts, size) = O::parse(&raw_args.opts(O::specs()))?;
+        let (opts, size) =
+            O::parse_with_env(&raw_args.opts(O::specs()), raw_args.env)?;
         let args = A::parse(raw_args.args(size))?;
         Ok(Self {
             opts,

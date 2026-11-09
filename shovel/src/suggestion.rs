@@ -168,7 +168,7 @@ impl<'a> Suggestion<'a> {
     /// Find a suggestion.
     #[must_use]
     pub fn find(typo: &'a str, cmds: &[&'a str]) -> Self {
-        debug_assert!(!cmds.is_empty());
+        debug_assert_ne!(cmds, [] as [&str; 0]);
 
         let mut cmd = cmds[0];
         let mut min = edit_distance(typo, cmds[0]);

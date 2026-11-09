@@ -1,14 +1,15 @@
 [package]
 name = "shovel"
-version = "0.1.0"
+version = "0.1.1"
 description = "A declarative, fast CLI parsing library with derive macros, no_std support, and zero-cost abstractions"
 edition = "2024"
 keywords = ["cli", "no_std"]
 license = "MIT"
+readme = "../README.md"
 repository = "https://github.com/pfchen/shovel"
 
 [dependencies]
-shovel_macros = "0.1.0"
+shovel_macros = { version = "0.1.1", path = "../shovel_macros" }
 
 [features]
 default = ["std", "completion"] # number of subcmds: 25
@@ -22,7 +23,6 @@ subcmds-100 = [] # extends to 100 subcmds
 
 [dev-dependencies]
 libc = { version = "0.2.180", default-features = false }
-unwind = "0.4.2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -50,6 +50,13 @@ bench = false
 
 [[example]]
 name = "echo"
+required-features = ["std"]
+test = false
+doctest = false
+bench = false
+
+[[example]]
+name = "env-fallback"
 required-features = ["std"]
 test = false
 doctest = false

@@ -117,6 +117,7 @@
 use core::marker::PhantomData;
 
 use crate::Context;
+use crate::EXIT_CODE_SUCCESS;
 use crate::Opts;
 use crate::ParseError;
 use crate::Pool;
@@ -186,17 +187,50 @@ use crate::{Args, RawArgs};
 /// ```
 ///
 /// See also: [`App`](crate::App), [`Cmd`](crate::Cmd), [`Subcmds`], [`Opts`], [`Args`], [`Context`]
+///
+/// Handlers may return `()` for success or `i32` for an explicit exit code.
+/// The final type parameter is inferred from the handler and defaults to `()`
+/// in explicit type annotations. Use a final `i32` parameter when explicitly
+/// annotating an action that returns an exit code. Both forms work without allocation.
+///
+/// ```
+/// use shovel::Action;
+///
+/// let unit: Action<(), (), (), ()> = Action::no_args(|| {});
+/// let code: Action<(), (), (), (), i32> = Action::no_args(|| 17);
+/// ```
+///
+/// Give closures that never return an explicit `()` or `i32` return type so
+/// inference does not select the never type (`!`):
+///
+/// ```no_run
+/// use shovel::Action;
+///
+/// let action: Action<(), (), (), (), _> = Action::no_args(|| -> () {
+///     panic!("handler is not implemented");
+/// });
+/// ```
 #[derive(Debug)]
-pub struct Action<O: Opts, A: Args, G: Opts, C: Subcmds<G>>(
-    ActionInner<O, A, G, C>,
-);
+pub struct Action<
+    O: Opts,
+    A: Args,
+    G: Opts,
+    C: Subcmds<G>,
+    R: crate::ActionReturn = (),
+>(ActionInner<O, A, G, C, R>);
 
 #[derive(Debug)]
-enum ActionInner<O: Opts, A: Args, G: Opts, C: Subcmds<G>> {
-    Handler(Handler<O, A, G>),
+enum ActionInner<
+    O: Opts,
+    A: Args,
+    G: Opts,
+    C: Subcmds<G>,
+    R: crate::ActionReturn,
+> {
+    Handler(Handler<O, A, G, R>),
     Subcmds(C),
     Both {
-        handler: Handler<O, A, G>,
+        handler: Handler<O, A, G, R>,
         subcmds: C,
     },
 }
@@ -247,7 +281,7 @@ pub enum ActionResult<'a> {
     /// Represents a parsing error.
     Error(ParseError<'a>),
     /// Indicates successful execution of the action.
-    Success,
+    Success(i32),
 }
 
 /// The action handler of a shovel Cmd.
@@ -255,49 +289,49 @@ pub enum ActionResult<'a> {
 /// The generic parameters O, A and G represent optional arguments, positional arguments and
 /// global optional arguments respectively.
 #[derive(Debug)]
-enum Handler<O: Opts, A: Args, G: Opts> {
-    NoArgs(fn()),
-    Opts(fn(O)),
-    Args(fn(A)),
-    GlobalOpts(fn(G)),
-    OptsArgs(fn(O, A)),
-    OptsWithGlobal(fn(O, G)),
-    ArgsWithGlobal(fn(A, G)),
-    All(fn(O, A, G)),
-    Context(fn(Context<O, A, G>)),
+enum Handler<O: Opts, A: Args, G: Opts, R: crate::ActionReturn> {
+    NoArgs(fn() -> R),
+    Opts(fn(O) -> R),
+    Args(fn(A) -> R),
+    GlobalOpts(fn(G) -> R),
+    OptsArgs(fn(O, A) -> R),
+    OptsWithGlobal(fn(O, G) -> R),
+    ArgsWithGlobal(fn(A, G) -> R),
+    All(fn(O, A, G) -> R),
+    Context(fn(Context<O, A, G>) -> R),
 }
 
-impl<O: Opts, A: Args, G: Opts> Handler<O, A, G> {
-    pub(crate) fn call(&self, cx: Context<O, A, G>) {
+impl<O: Opts, A: Args, G: Opts, R: crate::ActionReturn> Handler<O, A, G, R> {
+    pub(crate) fn call(&self, cx: Context<O, A, G>) -> i32 {
         match self {
-            Self::NoArgs(f) => f(),
+            Self::NoArgs(f) => f().into_exit_code(),
             Self::Opts(f) => {
                 let Context { opts, .. } = cx;
-                f(opts);
+                f(opts).into_exit_code()
             }
             Self::Args(f) => {
                 let Context { args, .. } = cx;
-                f(args);
+                f(args).into_exit_code()
             }
             Self::OptsArgs(f) => {
                 let Context { opts, args, .. } = cx;
-                f(opts, args);
+                f(opts, args).into_exit_code()
             }
             Self::GlobalOpts(f) => {
                 let Context { global_opts, .. } = cx;
-                f(global_opts);
+                f(global_opts).into_exit_code()
             }
             Self::OptsWithGlobal(f) => {
                 let Context {
                     opts, global_opts, ..
                 } = cx;
-                f(opts, global_opts);
+                f(opts, global_opts).into_exit_code()
             }
             Self::ArgsWithGlobal(f) => {
                 let Context {
                     args, global_opts, ..
                 } = cx;
-                f(args, global_opts);
+                f(args, global_opts).into_exit_code()
             }
             Self::All(f) => {
                 let Context {
@@ -305,14 +339,16 @@ impl<O: Opts, A: Args, G: Opts> Handler<O, A, G> {
                     args,
                     global_opts,
                 } = cx;
-                f(opts, args, global_opts);
+                f(opts, args, global_opts).into_exit_code()
             }
-            Self::Context(f) => f(cx),
+            Self::Context(f) => f(cx).into_exit_code(),
         }
     }
 }
 
-impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>> Action<O, A, G, C> {
+impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>, R: crate::ActionReturn>
+    Action<O, A, G, C, R>
+{
     /// Creates an `Action` with both a handler and a set of subcommands.
     ///
     /// This method allows you to create an `Action` that can handle both direct invocation
@@ -356,7 +392,7 @@ impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>> Action<O, A, G, C> {
     ///     // ... more subcommands ...
     /// ));
     /// ```
-    pub fn new(handler: fn(cx: Context<O, A, G>), subcmds: C) -> Self {
+    pub fn new(handler: fn(cx: Context<O, A, G>) -> R, subcmds: C) -> Self {
         #[cfg(not(feature = "generic_const_exprs"))]
         const {
             assert!(C::CMD_COUNT > 0);
@@ -402,8 +438,7 @@ impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>> Action<O, A, G, C> {
                         }
                         Ok(cx) => cx,
                     };
-                handler.call(cx);
-                ActionResult::Success
+                ActionResult::Success(handler.call(cx))
             }
             ActionInner::Both { handler, subcmds } => {
                 if let Some(cmd) = raw_args.cmd() {
@@ -413,6 +448,11 @@ impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>> Action<O, A, G, C> {
                         subcmds.run(cmd, raw_args, global_opts)
                     }
                 } else {
+                    // Root options were consumed while parsing global options.
+                    // Replay them for the default handler, as for handler-only apps.
+                    if is_app_action {
+                        raw_args.reset();
+                    }
                     let cx: Context<O, A, G> =
                         match Context::parse(raw_args, global_opts) {
                             Err(e) => {
@@ -420,8 +460,7 @@ impl<O: Opts, A: Args, G: Opts, C: Subcmds<G>> Action<O, A, G, C> {
                             }
                             Ok(cx) => cx,
                         };
-                    handler.call(cx);
-                    ActionResult::Success
+                    ActionResult::Success(handler.call(cx))
                 }
             }
         }
@@ -561,8 +600,8 @@ impl<G: Opts, C: Subcmds<G>> Action<(), (), G, C> {
     }
 }
 
-impl<O: Opts, A: Args, G: Opts> Action<O, A, G, ()> {
-    fn with_handler(handler: Handler<O, A, G>) -> Self {
+impl<O: Opts, A: Args, G: Opts, R: crate::ActionReturn> Action<O, A, G, (), R> {
+    fn with_handler(handler: Handler<O, A, G, R>) -> Self {
         Self(ActionInner::Handler(handler))
     }
 
@@ -606,7 +645,7 @@ impl<O: Opts, A: Args, G: Opts> Action<O, A, G, ()> {
     ///     }
     /// });
     /// ```
-    pub fn handler(f: fn(cx: Context<O, A, G>)) -> Self {
+    pub fn handler(f: fn(cx: Context<O, A, G>) -> R) -> Self {
         Self::with_handler(Handler::Context(f))
     }
 
@@ -650,12 +689,12 @@ impl<O: Opts, A: Args, G: Opts> Action<O, A, G, ()> {
     ///     }
     /// });
     /// ```
-    pub fn all(f: fn(opts: O, args: A, global_opts: G)) -> Self {
+    pub fn all(f: fn(opts: O, args: A, global_opts: G) -> R) -> Self {
         Self::with_handler(Handler::All(f))
     }
 }
 
-impl<G: Opts> Action<(), (), G, ()> {
+impl<G: Opts, R: crate::ActionReturn> Action<(), (), G, (), R> {
     /// Creates an `Action` with a handler that takes no arguments.
     ///
     /// This method is useful for creating simple actions that don't require any input parameters.
@@ -671,12 +710,12 @@ impl<G: Opts> Action<(), (), G, ()> {
     /// });
     /// # }
     /// ```
-    pub fn no_args(f: fn()) -> Self {
+    pub fn no_args(f: fn() -> R) -> Self {
         Self::with_handler(Handler::NoArgs(f))
     }
 }
 
-impl<A: Args, G: Opts> Action<(), A, G, ()> {
+impl<A: Args, G: Opts, R: crate::ActionReturn> Action<(), A, G, (), R> {
     /// Creates an `Action` with a handler that only processes positional arguments.
     ///
     /// This method is useful when you want to create an action that focuses solely on
@@ -718,12 +757,12 @@ impl<A: Args, G: Opts> Action<(), A, G, ()> {
     /// In this example, `GreetArgs` defines two positional arguments: a required `name` and an optional `count`.
     /// The `greet` function uses these arguments to print a greeting message. The `Action::args` method
     /// is used to create an action that will invoke the `greet` function with the parsed arguments.
-    pub fn args(f: fn(args: A)) -> Self {
+    pub fn args(f: fn(args: A) -> R) -> Self {
         Self::with_handler(Handler::Args(f))
     }
 }
 
-impl<O: Opts, G: Opts> Action<O, (), G, ()> {
+impl<O: Opts, G: Opts, R: crate::ActionReturn> Action<O, (), G, (), R> {
     /// Creates an `Action` with a handler that processes only optional arguments.
     ///
     /// This method is useful when you want to create an action that focuses solely on
@@ -769,12 +808,12 @@ impl<O: Opts, G: Opts> Action<O, (), G, ()> {
     /// The `tick` function uses these options to control the timing and repetition of the "tick" output.
     /// The `Action::opts` method is used to create an action that will invoke the `tick` function
     /// with the parsed optional arguments.
-    pub fn opts(f: fn(opts: O)) -> Self {
+    pub fn opts(f: fn(opts: O) -> R) -> Self {
         Self::with_handler(Handler::Opts(f))
     }
 }
 
-impl<O: Opts, A: Args, G: Opts> Action<O, A, G, ()> {
+impl<O: Opts, A: Args, G: Opts, R: crate::ActionReturn> Action<O, A, G, (), R> {
     /// Creates an `Action` with a handler that processes both optional and positional arguments.
     ///
     /// This method is useful when you want to create an action that needs access to both
@@ -832,12 +871,12 @@ impl<O: Opts, A: Args, G: Opts> Action<O, A, G, ()> {
     /// while `EchoArgs` contains the positional argument for the message to echo.
     /// The action created will use both the optional and positional arguments to
     /// determine how to print the message.
-    pub fn opts_args(f: fn(opts: O, args: A)) -> Self {
+    pub fn opts_args(f: fn(opts: O, args: A) -> R) -> Self {
         Self::with_handler(Handler::OptsArgs(f))
     }
 }
 
-impl<A: Args, G: Opts> Action<(), A, G, ()> {
+impl<A: Args, G: Opts, R: crate::ActionReturn> Action<(), A, G, (), R> {
     /// Creates an `Action` with a handler that processes both positional arguments and global optional arguments.
     ///
     /// This method is useful when you need to handle positional arguments while also having access to global options
@@ -890,12 +929,12 @@ impl<A: Args, G: Opts> Action<(), A, G, ()> {
     /// while `GlobalOpts` provides a verbose flag that affects the output format.
     /// The action created will use both the positional arguments and the global options
     /// to determine how to calculate and display the sum.
-    pub fn args_with_global_opts(f: fn(args: A, global_opts: G)) -> Self {
+    pub fn args_with_global_opts(f: fn(args: A, global_opts: G) -> R) -> Self {
         Self::with_handler(Handler::ArgsWithGlobal(f))
     }
 }
 
-impl<O: Opts, G: Opts> Action<O, (), G, ()> {
+impl<O: Opts, G: Opts, R: crate::ActionReturn> Action<O, (), G, (), R> {
     /// Creates an `Action` with a handler that processes both command-specific optional arguments and global optional arguments.
     ///
     /// This method is useful when you need to handle command-specific options while also having access to global options
@@ -958,12 +997,12 @@ impl<O: Opts, G: Opts> Action<O, (), G, ()> {
     /// while `GlobalOpts` provides a verbose flag that affects the output format across potentially multiple commands.
     /// The action created will use both the command-specific options and the global options to determine
     /// how to perform and display the ticking operation.
-    pub fn opts_with_global_opts(f: fn(opts: O, global_opts: G)) -> Self {
+    pub fn opts_with_global_opts(f: fn(opts: O, global_opts: G) -> R) -> Self {
         Self::with_handler(Handler::OptsWithGlobal(f))
     }
 }
 
-impl<G: Opts> Action<(), (), G, ()> {
+impl<G: Opts, R: crate::ActionReturn> Action<(), (), G, (), R> {
     /// Creates an `Action` with a handler that only processes global optional arguments.
     ///
     /// This method is useful when you want to create an action that focuses solely on
@@ -1010,8 +1049,33 @@ impl<G: Opts> Action<(), (), G, ()> {
     /// The `setup_logging` function uses these global options to configure the application's logging behavior.
     /// The `Action::global_opts` method is used to create an action that will invoke the `setup_logging` function
     /// with the parsed global arguments, allowing for consistent logging setup across different commands.
-    pub fn global_opts(f: fn(global_opts: G)) -> Self {
+    pub fn global_opts(f: fn(global_opts: G) -> R) -> Self {
         Self::with_handler(Handler::GlobalOpts(f))
+    }
+}
+
+/// A supported action handler return value: `()` means success, and `i32`
+/// supplies the exit code. Handlers use this conversion without allocation.
+pub trait ActionReturn: action_return::Sealed {
+    /// Convert a handler's return value to the application's exit code.
+    fn into_exit_code(self) -> i32;
+}
+
+mod action_return {
+    pub trait Sealed {}
+    impl Sealed for () {}
+    impl Sealed for i32 {}
+}
+
+impl ActionReturn for () {
+    fn into_exit_code(self) -> i32 {
+        EXIT_CODE_SUCCESS
+    }
+}
+
+impl ActionReturn for i32 {
+    fn into_exit_code(self) -> i32 {
+        self
     }
 }
 
@@ -1170,7 +1234,7 @@ mod tests {
         let result = action.run("test", &raw_args, global_opts, false);
 
         // Verify execution
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[test]
@@ -1188,7 +1252,7 @@ mod tests {
         let result = action.run("test", &raw_args, global_opts, false);
 
         // Verify execution
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[test]
@@ -1207,7 +1271,7 @@ mod tests {
         let result = action.run("test", &raw_args, global_opts, false);
 
         // Verify execution
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[test]
@@ -1227,7 +1291,7 @@ mod tests {
         let result = action.run("test", &raw_args, global_opts, false);
 
         // Verify execution
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[test]
@@ -1246,7 +1310,7 @@ mod tests {
         let result = action.run("test", &raw_args, global_opts, false);
 
         // Verify execution
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[test]
@@ -1271,7 +1335,7 @@ mod tests {
         let result = action.run("test", &raw_args, global_opts, false);
 
         // Verify execution
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[cfg(feature = "std")]
@@ -1291,7 +1355,7 @@ mod tests {
         let result = action.run("test", &raw_args, global_opts, false);
 
         // Verify execution
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[test]
@@ -1319,7 +1383,7 @@ mod tests {
         let args: &[&str] = &["sub1"];
         let raw_args = crate::RawArgs::new(args);
         let result = action.run("test", &raw_args, (), false);
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         // Test unknown subcommand
         let args: &[&str] = &["unknown"];
@@ -1358,13 +1422,13 @@ mod tests {
         let args: &[&str] = &[];
         let raw_args = crate::RawArgs::new(args);
         let result = action.run("test", &raw_args, (), false);
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         // Test subcommand execution
         let args: &[&str] = &["sub"];
         let raw_args = crate::RawArgs::new(args);
         let result = action.run("test", &raw_args, (), false);
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
     }
 
     #[test]
@@ -1384,7 +1448,7 @@ mod tests {
         let args: &[&str] = &["test_cmd"];
         let raw_args = crate::RawArgs::new(args);
         let result = action.run("app", &raw_args, (), true);
-        assert!(matches!(result, ActionResult::Success));
+        assert!(matches!(result, ActionResult::Success(0)));
 
         // Test no subcommand - should show help
         let args: &[&str] = &[];
@@ -1502,8 +1566,8 @@ mod tests {
     #[test]
     fn test_action_result_variants() {
         // Test that ActionResult variants can be created and matched
-        let result = ActionResult::Success;
-        assert!(matches!(result, ActionResult::Success));
+        let result = ActionResult::Success(0);
+        assert!(matches!(result, ActionResult::Success(0)));
 
         let result = ActionResult::ShowHelp {
             cmd: "test",

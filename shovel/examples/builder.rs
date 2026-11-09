@@ -69,7 +69,7 @@ struct ConfigGetArgs {
 }
 
 fn main() {
-    AppBuilder::new("builder")
+    let code = AppBuilder::new("builder")
         .description("A tiny task tracker built with the builder API")
         .version("0.1.0")
         .authors(["Author Name <author@example.com>"])
@@ -88,6 +88,8 @@ fn main() {
                             "Added task: \"{}\" (priority: {}, tag: {})",
                             args.title, priority, tag
                         );
+
+                        0
                     },
                 ))
                 .build(),
@@ -101,12 +103,16 @@ fn main() {
                         }
                         None => println!("Listing {scope} tasks"),
                     }
+
+                    0
                 }))
                 .build(),
             CmdBuilder::new("complete")
                 .description("Marks a task as completed")
                 .action(Action::args(|args: CompleteArgs| {
                     println!("Completed task #{}", args.id);
+
+                    0
                 }))
                 .build(),
             CmdBuilder::new("config")
@@ -128,6 +134,8 @@ fn main() {
                                         args.key, args.value
                                     );
                                 }
+
+                                0
                             },
                         ))
                         .build(),
@@ -136,6 +144,8 @@ fn main() {
                         .category("configuration")
                         .action(Action::args(|args: ConfigGetArgs| {
                             println!("Reading {}", args.key);
+
+                            0
                         }))
                         .build(),
                 )))
@@ -144,4 +154,5 @@ fn main() {
         .build()
         .run()
         .expect("Failed to run the application");
+    std::process::exit(code);
 }

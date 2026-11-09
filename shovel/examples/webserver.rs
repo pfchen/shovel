@@ -361,7 +361,7 @@ pub struct ConfigReloadArgs {
 }
 
 fn main() {
-    App {
+    let code = App {
         name: "webserver",
         description: "A web server management CLI with database, RPC, and configuration tools",
         version: "0.1.0",
@@ -387,6 +387,8 @@ fn main() {
                     if let (Some(cert), Some(key)) = (&opts.tls_cert, &opts.tls_key) {
                         println!("TLS enabled: {} / {}", cert.display(), key.display());
                     }
+
+                    0
                 }),
             },
             Cmd {
@@ -424,6 +426,8 @@ fn main() {
                                         println!("Re-running last migration");
                                     }
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -440,6 +444,8 @@ fn main() {
                                 if opts.force {
                                     println!("  [Overwriting existing data]");
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -456,6 +462,8 @@ fn main() {
                                 if opts.compress {
                                     println!("  [Compressing with gzip]");
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -493,6 +501,8 @@ fn main() {
                                         println!("Starting MessagePack RPC server on port {}", port);
                                     }
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -513,6 +523,8 @@ fn main() {
                                 if !args.payload.is_empty() {
                                     println!("  Payload: {}", args.payload);
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -542,6 +554,8 @@ fn main() {
                                 if opts.docs {
                                     println!("  [Including documentation]");
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -570,6 +584,8 @@ fn main() {
                     if let Some(filter) = &opts.filter {
                         println!("  Filter: {}", filter);
                     }
+
+                    0
                 }),
             },
             Cmd {
@@ -590,6 +606,8 @@ fn main() {
                                 if opts.strict {
                                     println!("  [Strict mode - warnings fail]");
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -612,6 +630,8 @@ fn main() {
                                 if let Some(output) = &opts.output {
                                     println!("  Output: {}", output.display());
                                 }
+
+                                0
                             },
                         ),
                     },
@@ -630,6 +650,8 @@ fn main() {
                                 ConfigSignal::Sigint => "SIGINT",
                             };
                             println!("Sending {} to reload configuration", signal_name);
+
+                            0
                         }),
                     },
                 )),
@@ -638,4 +660,5 @@ fn main() {
     }
     .run()
     .expect("Failed to run the application");
+    std::process::exit(code);
 }

@@ -11,7 +11,7 @@
 use shovel::*;
 
 fn main() {
-    App {
+    let code = App {
         name: "hello",
         description: "A simple greeting application",
         version: "0.1.0",
@@ -19,8 +19,11 @@ fn main() {
         copyright: "(c) 2026 Company Name",
         action: Action::no_args(|| {
             println!("Hello, world!");
+
+            0
         }),
     }
     .run()
     .expect("Failed to run the application");
+    std::process::exit(code);
 }
